@@ -7,6 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('django_mailbox', '0007_auto_20180421_0026'),
+        ('django_mailbox', '0007_auto_20171105_1015'),  # Mailbox.user
     ]
 
     operations = [
