@@ -62,7 +62,8 @@ class Mailbox(models.Model):
         django_settings.AUTH_USER_MODEL,
         blank=True,
         null=True,
-        default=None
+        default=None,
+        on_delete=models.SET_NULL
     )
 
     name = models.CharField(
