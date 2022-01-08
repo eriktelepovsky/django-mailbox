@@ -1,7 +1,6 @@
 import os
 import uuid
-
-from six.moves.urllib import parse
+from urllib import parse
 
 from django.core.mail import EmailMultiAlternatives
 
@@ -14,7 +13,7 @@ __all__ = ['TestImap']
 
 class TestImap(EmailMessageTestCase):
     def setUp(self):
-        super(TestImap, self).setUp()
+        super().setUp()
 
         self.test_imap_server = (
             os.environ.get('EMAIL_IMAP_SERVER')
@@ -64,7 +63,8 @@ class TestImap(EmailMessageTestCase):
             self.mailbox,
             condition=lambda m: m['subject'] == self.arbitrary_identifier
         )
+        message = next(messages)
 
-        self.assertEqual(1, len(messages))
-        self.assertEqual(messages[0].subject, self.arbitrary_identifier)
-        self.assertEqual(messages[0].text, text_content)
+        self.assertEqual(message.subject, self.arbitrary_identifier)
+        self.assertEqual(message.text, text_content)
+        self.assertEqual(0, len(list(messages)))

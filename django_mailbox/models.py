@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 """
 Models declaration for application ``django_mailbox``.
@@ -8,7 +7,9 @@ import gzip
 from email.encoders import encode_base64
 from email.message import Message as EmailMessage
 from email.utils import formatdate, parseaddr
+from urllib.parse import parse_qs, unquote, urlparse
 from quopri import encode as encode_quopri
+from io import BytesIO
 import base64
 import email
 import logging
@@ -18,17 +19,13 @@ import sys
 import uuid
 from tempfile import NamedTemporaryFile
 
-import six
-from six.moves.urllib.parse import parse_qs, unquote, urlparse
-
 import django
 from django.conf import settings as django_settings
 from django.core.files.base import ContentFile, File
 from django.core.mail.message import make_msgid
 from django.db import models
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 from django.utils.timezone import now
-from django.utils.encoding import python_2_unicode_compatible
 
 from django_mailbox import utils
 from django_mailbox.signals import message_received
@@ -39,14 +36,27 @@ from django_mailbox.transports import Pop3Transport, ImapTransport, \
 logger = logging.getLogger(__name__)
 
 
-class ActiveMailboxManager(models.Manager):
+class MailboxQuerySet(models.QuerySet):
+    def get_new_mail(self):
+        count = 0
+        for mailbox in self.all():
+            logger.debug('Receiving mail for %s' % mailbox)
+            count += sum(1 for i in mailbox.get_new_mail())
+        logger.debug('Received %d %s.', count, 'mails' if count != 1 else 'mail')
+
+
+class MailboxManager(models.Manager):
     def get_queryset(self):
-        return super(ActiveMailboxManager, self).get_queryset().filter(
+        return MailboxQuerySet(self.model, using=self._db)
+
+
+class ActiveMailboxManager(MailboxManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(
             active=True,
         )
 
 
-@python_2_unicode_compatible
 class Mailbox(models.Model):
     user = models.ForeignKey(
         django_settings.AUTH_USER_MODEL,
@@ -56,12 +66,12 @@ class Mailbox(models.Model):
     )
 
     name = models.CharField(
-        _(u'Name'),
+        _('Name'),
         max_length=255,
     )
 
     uri = models.CharField(
-        _(u'URI'),
+        _('URI'),
         max_length=255,
         help_text=(_(
             "Example: imap+ssl://myusername:mypassword@someserver <br />"
@@ -79,7 +89,7 @@ class Mailbox(models.Model):
     )
 
     from_email = models.CharField(
-        _(u'From email'),
+        _('From email'),
         max_length=255,
         help_text=(_(
             "Example: MailBot &lt;mailbot@yourdomain.com&gt;<br />"
@@ -96,7 +106,7 @@ class Mailbox(models.Model):
     )
 
     active = models.BooleanField(
-        _(u'Active'),
+        _('Active'),
         help_text=(_(
             "Check this e-mail inbox for new e-mail messages during polling "
             "cycles.  This checkbox does not have an effect upon whether "
@@ -109,7 +119,7 @@ class Mailbox(models.Model):
     )
 
     last_polling = models.DateTimeField(
-        _(u"Last polling"),
+        _("Last polling"),
         help_text=(_("The time of last successful polling for messages."
                      "It is blank for new mailboxes and is not set for "
                      "mailboxes that only receive messages via a pipe.")),
@@ -117,7 +127,7 @@ class Mailbox(models.Model):
         null=True
     )
 
-    objects = models.Manager()
+    objects = MailboxManager()
     active_mailboxes = ActiveMailboxManager()
 
     @property
@@ -301,7 +311,7 @@ class Mailbox(models.Model):
             attachment.document.save(
                 uuid.uuid4().hex + extension,
                 ContentFile(
-                    six.BytesIO(
+                    BytesIO(
                         msg.get_payload(decode=True)
                     ).getvalue()
                 )
@@ -352,6 +362,7 @@ class Mailbox(models.Model):
 
     def _process_message(self, message):
         msg = Message()
+        msg._email_object = message
         settings = utils.get_settings()
 
         if settings['store_original_message']:
@@ -398,7 +409,7 @@ class Mailbox(models.Model):
                 with gzip.GzipFile(fileobj=fp_tmp, mode="w") as fp:
                     fp.write(message.as_string().encode('utf-8'))
                 msg.eml.save(
-                    "%s.eml.gz" % (uuid.uuid4(), ),
+                    "{}.eml.gz".format(uuid.uuid4()),
                     File(fp_tmp),
                     save=False
                 )
@@ -415,17 +426,16 @@ class Mailbox(models.Model):
         new_mail = []
         connection = self.get_connection()
         if not connection:
-            return new_mail
+            return
         for message in connection.get_message(condition):
             msg = self.process_incoming_message(message)
             if not msg is None:
-                new_mail.append(msg)
+                yield msg
         self.last_polling = now()
         if django.VERSION >= (1, 5):  # Django 1.5 introduces update_fields
             self.save(update_fields=['last_polling'])
         else:
             self.save()
-        return new_mail
 
     def __str__(self):
         return self.name
@@ -437,40 +447,40 @@ class Mailbox(models.Model):
 
 class IncomingMessageManager(models.Manager):
     def get_queryset(self):
-        return super(IncomingMessageManager, self).get_queryset().filter(
+        return super().get_queryset().filter(
             outgoing=False,
         )
 
 
 class OutgoingMessageManager(models.Manager):
     def get_queryset(self):
-        return super(OutgoingMessageManager, self).get_queryset().filter(
+        return super().get_queryset().filter(
             outgoing=True,
         )
 
 
 class UnreadMessageManager(models.Manager):
     def get_queryset(self):
-        return super(UnreadMessageManager, self).get_queryset().filter(
+        return super().get_queryset().filter(
             read=None
         )
 
 
-@python_2_unicode_compatible
 class Message(models.Model):
     mailbox = models.ForeignKey(
         Mailbox,
         related_name='messages',
-        verbose_name=_(u'Mailbox'),
+        verbose_name=_('Mailbox'),
+        on_delete=models.CASCADE
     )
 
     subject = models.CharField(
-        _(u'Subject'),
+        _('Subject'),
         max_length=255
     )
 
     message_id = models.CharField(
-        _(u'Message ID'),
+        _('Message ID'),
         max_length=255
     )
 
@@ -479,7 +489,8 @@ class Message(models.Model):
         related_name='replies',
         blank=True,
         null=True,
-        verbose_name=_(u'In reply to'),
+        verbose_name=_('In reply to'),
+        on_delete=models.CASCADE
     )
 
     from_header = models.CharField(
@@ -488,21 +499,21 @@ class Message(models.Model):
     )
 
     to_header = models.TextField(
-        _(u'To header'),
+        _('To header'),
     )
 
     outgoing = models.BooleanField(
-        _(u'Outgoing'),
+        _('Outgoing'),
         default=False,
         blank=True,
     )
 
     body = models.TextField(
-        _(u'Body'),
+        _('Body'),
     )
 
     encoded = models.BooleanField(
-        _(u'Encoded'),
+        _('Encoded'),
         default=False,
         help_text=_('True if the e-mail body is Base64 encoded'),
     )
@@ -513,17 +524,17 @@ class Message(models.Model):
     )
 
     read = models.DateTimeField(
-        _(u'Read'),
+        _('Read'),
         default=None,
         blank=True,
         null=True,
     )
 
     eml = models.FileField(
-        _(u'Raw message contents'),
+        _('Raw message contents'),
         null=True,
         upload_to="messages",
-        help_text=_(u'Original full content of message')
+        help_text=_('Original full content of message')
     )
     objects = models.Manager()
     unread_messages = UnreadMessageManager()
@@ -639,9 +650,9 @@ class Message(models.Model):
                 if encoding and encoding.lower() == 'quoted-printable':
                     # Cannot use `email.encoders.encode_quopri due to
                     # bug 14360: http://bugs.python.org/issue14360
-                    output = six.BytesIO()
+                    output = BytesIO()
                     encode_quopri(
-                        six.BytesIO(
+                        BytesIO(
                             attachment.document.read()
                         ),
                         output,
@@ -693,17 +704,15 @@ class Message(models.Model):
         no fields existed for storing arbitrary bytes.
 
         """
-        if six.PY3:
-            body = body.encode('utf-8')
         self.encoded = True
-        self.body = base64.b64encode(body).decode('ascii')
+        self.body = base64.b64encode(body.encode('utf-8')).decode('ascii')
 
     def get_email_object(self):
-        """Returns an `email.message.Message` instance representing the
+        """Returns an `email.message.EmailMessage` instance representing the
         contents of this message and all attachments.
 
-        See [email.Message.Message]_ for more information as to what methods
-        and properties are available on `email.message.Message` instances.
+        See [email.message.EmailMessage]_ for more information as to what methods
+        and properties are available on `email.message.EmailMessage` instances.
 
         .. note::
 
@@ -713,31 +722,30 @@ class Message(models.Model):
            using stored attachments, or read the message contents stored
            on-disk.
 
-        .. [email.Message.Message]: Python's `email.message.Message` docs
-           (https://docs.python.org/2/library/email.message.html)
+        .. [email.message.EmailMessage] Python's `email.message.EmailMessage` docs
+           (https://docs.python.org/3/library/email.message.html)
 
         """
-        if self.eml:
-            if self.eml.name.endswith('.gz'):
-                body = gzip.GzipFile(fileobj=self.eml).read()
+        if not hasattr(self, '_email_object'):  # Cache fill
+            if self.eml:
+                if self.eml.name.endswith('.gz'):
+                    body = gzip.GzipFile(fileobj=self.eml).read()
+                else:
+                    self.eml.open()
+                    body = self.eml.file.read()
+                    self.eml.close()
             else:
-                self.eml.open()
-                body = self.eml.file.read()
-                self.eml.close()
-        else:
-            body = self.get_body()
-        if six.PY3:
+                body = self.get_body()
             flat = email.message_from_bytes(body)
-        else:
-            flat = email.message_from_string(body)
-        return self._rehydrate(flat)
+            self._email_object = self._rehydrate(flat)
+        return self._email_object
 
     def delete(self, *args, **kwargs):
         """Delete this message and all stored attachments."""
         for attachment in self.attachments.all():
             # This attachment is attached only to this message.
             attachment.delete()
-        return super(Message, self).delete(*args, **kwargs)
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return self.subject
@@ -747,7 +755,6 @@ class Message(models.Model):
         verbose_name_plural = _('E-mail messages')
 
 
-@python_2_unicode_compatible
 class MessageAttachment(models.Model):
     message = models.ForeignKey(
         Message,
@@ -755,33 +762,29 @@ class MessageAttachment(models.Model):
         null=True,
         blank=True,
         verbose_name=_('Message'),
+        on_delete=models.CASCADE
     )
 
     headers = models.TextField(
-        _(u'Headers'),
+        _('Headers'),
         null=True,
         blank=True,
     )
 
     document = models.FileField(
-        _(u'Document'),
+        _('Document'),
         upload_to=utils.get_attachment_save_path,
     )
 
     def delete(self, *args, **kwargs):
         """Deletes the attachment."""
         self.document.delete()
-        return super(MessageAttachment, self).delete(*args, **kwargs)
+        return super().delete(*args, **kwargs)
 
     def _get_rehydrated_headers(self):
         headers = self.headers
         if headers is None:
             return EmailMessage()
-        if sys.version_info < (3, 0):
-            try:
-                headers = headers.encode('utf-8')
-            except UnicodeDecodeError:
-                headers = headers.decode('utf-8').encode('utf-8')
         return email.message_from_string(headers)
 
     def _set_dehydrated_headers(self, email_object):
@@ -800,7 +803,7 @@ class MessageAttachment(models.Model):
     def get_filename(self):
         """Returns the original filename of this attachment."""
         file_name = self._get_rehydrated_headers().get_filename()
-        if isinstance(file_name, six.string_types):
+        if isinstance(file_name, str):
             result = utils.convert_header_to_unicode(file_name)
             if result is None:
                 return file_name

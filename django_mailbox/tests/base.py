@@ -2,8 +2,6 @@ import email
 import os.path
 import time
 
-import six
-
 from django.conf import settings
 from django.test import TestCase
 
@@ -57,17 +55,26 @@ class EmailMessageTestCase(TestCase):
         settings.EMAIL_HOST_USER = self.test_account
         settings.EMAIL_HOST_PASSWORD = self.test_password
         settings.EMAIL_USE_TLS = True
-        super(EmailMessageTestCase, self).setUp()
+        super().setUp()
 
     def _get_new_messages(self, mailbox, condition=None):
-        maximum_wait = time.time() + self.maximum_wait_seconds
-        while True:
-            if time.time() > maximum_wait:
-                raise EmailIntegrationTimeout()
+        start_time = time.time()
+        # wait until there is at least one message
+        while time.time() - start_time < self.maximum_wait_seconds:
+
             messages = self.mailbox.get_new_mail(condition)
-            if messages:
-                return messages
-            time.sleep(5)
+
+            try:
+                # check if generator contains at least one element
+                message = next(messages)
+                yield message
+                yield from messages
+                return
+
+            except StopIteration:
+                time.sleep(5)
+
+        raise EmailIntegrationTimeout()
 
     def _get_email_as_text(self, name):
         with open(
@@ -82,10 +89,7 @@ class EmailMessageTestCase(TestCase):
 
     def _get_email_object(self, name):
         copy = self._get_email_as_text(name)
-        if six.PY3:
-            return email.message_from_bytes(copy)
-        else:
-            return email.message_from_string(copy)
+        return email.message_from_bytes(copy)
 
     def _headers_identical(self, left, right, header=None):
         """ Check if headers are (close enough to) identical.
@@ -121,7 +125,7 @@ class EmailMessageTestCase(TestCase):
                 raise AssertionError("Extra header '%s'" % key)
             if not self._headers_identical(right[key], value, header=key):
                 raise AssertionError(
-                    "Header '%s' unequal:\n%s\n%s" % (
+                    "Header '{}' unequal:\n{}\n{}".format(
                         key,
                         repr(value),
                         repr(right[key]),
@@ -134,7 +138,7 @@ class EmailMessageTestCase(TestCase):
                 raise AssertionError("Extra header '%s'" % key)
             if not self._headers_identical(left[key], value, header=key):
                 raise AssertionError(
-                    "Header '%s' unequal:\n%s\n%s" % (
+                    "Header '{}' unequal:\n{}\n{}".format(
                         key,
                         repr(value),
                         repr(right[key]),
@@ -165,7 +169,7 @@ class EmailMessageTestCase(TestCase):
 
     def _raise_mismatched(self, left, right):
         raise AssertionError(
-            "Message payloads do not match:\n%s\n%s" % (
+            "Message payloads do not match:\n{}\n{}".format(
                 left.as_string(),
                 right.as_string()
             )
@@ -173,7 +177,7 @@ class EmailMessageTestCase(TestCase):
 
     def assertEqual(self, left, right):  # noqa: N802
         if not isinstance(left, email.message.Message):
-            return super(EmailMessageTestCase, self).assertEqual(left, right)
+            return super().assertEqual(left, right)
         return self.compare_email_objects(left, right)
 
     def tearDown(self):
@@ -184,4 +188,4 @@ class EmailMessageTestCase(TestCase):
         models.TEXT_STORED_MIMETYPES = self._TEXT_STORED_MIMETYPES
 
         self.mailbox.delete()
-        super(EmailMessageTestCase, self).tearDown()
+        super().tearDown()
