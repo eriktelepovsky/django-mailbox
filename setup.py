@@ -27,7 +27,7 @@ setup(
     extras_require={
         'gmail-oauth2': gmail_oauth2_require
     },
-    python_requires=">=3",
+    python_requires=">=2.7",
     classifiers=[
         'Framework :: Django',
         'Intended Audience :: Developers',
