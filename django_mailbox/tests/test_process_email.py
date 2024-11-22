@@ -1,6 +1,5 @@
 import gzip
 import os.path
-import sys
 
 import copy
 from unittest import mock
@@ -9,7 +8,7 @@ from django_mailbox.models import Mailbox, Message
 from django_mailbox.utils import convert_header_to_unicode
 from django_mailbox import utils
 from django_mailbox.tests.base import EmailMessageTestCase
-from django.utils.encoding import force_text
+from django.utils.encoding import force_str
 from django.core.mail import EmailMessage
 
 __all__ = ['TestProcessEmail']
@@ -87,6 +86,23 @@ class TestProcessEmail(EmailMessageTestCase):
             attachment.get_filename(),
             'heart.png',
         )
+
+    def test_message_with_rfc822_attachment(self):
+        message = self._get_email_object('message_with_rfc822_attachment.eml')
+
+        mailbox = Mailbox.objects.create()
+        msg = mailbox.process_incoming_message(message)
+
+        expected_count = 1
+        actual_count = msg.attachments.count()
+
+        self.assertEqual(
+            expected_count,
+            actual_count,
+        )
+
+        attachment = msg.attachments.all()[0]
+        self.assertIsNone(attachment.get_filename())
 
     def test_message_with_utf8_attachment_header(self):
         """ Ensure that we properly handle UTF-8 encoded attachment
@@ -329,6 +345,9 @@ class TestProcessEmail(EmailMessageTestCase):
         )
         msg = self.mailbox.record_outgoing_message(email_object.message())
 
+        with self.assertRaises(ValueError):
+            msg.reply(Message(subject="ping", body="pong"))
+
         self.assertTrue(msg.outgoing)
 
         actual_from = 'username@example.com'
@@ -367,12 +386,12 @@ class TestProcessEmail(EmailMessageTestCase):
         email_object = self._get_email_object(
             'message_with_long_content.eml',
         )
-        size = len(force_text(email_object.as_string()))
+        size = len(force_str(email_object.as_string()))
 
         msg = self.mailbox.process_incoming_message(email_object)
 
         self.assertEqual(size,
-                         len(force_text(msg.get_email_object().as_string())))
+                         len(force_str(msg.get_email_object().as_string())))
 
     def test_message_saved(self):
         message = self._get_email_object('generic_message.eml')
@@ -386,7 +405,7 @@ class TestProcessEmail(EmailMessageTestCase):
 
             msg = self.mailbox.process_incoming_message(message)
 
-        self.assertNotEquals(msg.eml, None)
+        self.assertNotEqual(msg.eml, None)
 
         self.assertTrue(msg.eml.name.endswith('.eml'))
 
@@ -408,7 +427,7 @@ class TestProcessEmail(EmailMessageTestCase):
 
             msg = self.mailbox.process_incoming_message(message)
 
-        self.assertEquals(msg.eml, None)
+        self.assertEqual(msg.eml, None)
 
     def test_message_compressed(self):
         message = self._get_email_object('generic_message.eml')
@@ -423,10 +442,20 @@ class TestProcessEmail(EmailMessageTestCase):
 
             msg = self.mailbox.process_incoming_message(message)
 
-        actual_email_object = msg.get_email_object()
+        _actual_email_object = msg.get_email_object()
 
         self.assertTrue(msg.eml.name.endswith('.eml.gz'))
 
         with gzip.open(msg.eml.name, 'rb') as f:
             self.assertEqual(f.read(),
                              self._get_email_as_text('generic_message.eml'))
+            
+    def test_message_bad_character_in_attachment_filename(self):
+        '''
+        Regression test for handling weird characters in attachment filename headers.
+        Previously accessing msg.text threw an exception.
+        '''
+        message = self._get_email_object('bad_character_attachment.eml')
+        msg = self.mailbox.process_incoming_message(message)
+
+        self.assertIsNotNone(msg.text)

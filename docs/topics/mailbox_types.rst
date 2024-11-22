@@ -7,19 +7,20 @@ POP3 and IMAP as well as local file-based mailboxes.
 
 .. table:: 'Protocol' Options
 
-  ============ ================ ====================================================================================================================================================================
-  Mailbox Type 'Protocol'://    Notes
-  ============ ================ ====================================================================================================================================================================
-  POP3         ``pop3://``      Can also specify SSL with ``pop3+ssl://``
-  IMAP         ``imap://``      Can also specify SSL with ``imap+ssl://`` or STARTTLS with ``imap+tls``; additional configuration is also possible: see :ref:`pop3-and-imap-mailboxes` for details.
-  Gmail IMAP   ``gmail+ssl://`` Uses OAuth authentication for  Gmail's IMAP transport.  See :ref:`gmail-oauth` for details.
-  Maildir      ``maildir://``
-  Mbox         ``mbox://``
-  Babyl        ``babyl://``
-  MH           ``mh://``
-  MMDF         ``mmdf://``
-  Piped Mail   *empty*          See :ref:`receiving-mail-from-exim4-or-postfix`
-  ============ ================ ====================================================================================================================================================================
+  ================  ================  ====================================================================================================================================================================
+  Mailbox Type      'Protocol'://     Notes
+  ================  ================  ====================================================================================================================================================================
+  POP3              ``pop3://``       Can also specify SSL with ``pop3+ssl://``
+  IMAP              ``imap://``       Can also specify SSL with ``imap+ssl://`` or STARTTLS with ``imap+tls``; additional configuration is also possible: see :ref:`pop3-and-imap-mailboxes` for details.
+  Gmail IMAP        ``gmail+ssl://``  Uses OAuth authentication for  Gmail's IMAP transport.  See :ref:`gmail-oauth` for details.
+  Office365 API     ``office365://``  Uses OAuth authentication for  Office365 API transport.  See :ref:`office365-oauth` for details.
+  Maildir           ``maildir://``    *empty*
+  Mbox              ``mbox://``       *empty*
+  Babyl             ``babyl://``      *empty*
+  MH                ``mh://``         *empty*
+  MMDF              ``mmdf://``       *empty*
+  Piped Mail        *empty*           See :ref:`receiving-mail-from-exim4-or-postfix`
+  ================  ================  ====================================================================================================================================================================
 
 
 .. warning::
@@ -76,6 +77,11 @@ to the end of your URI::
 
     imap+ssl://youremailaddress%40gmail.com:1234@imap.gmail.com?folder=MyFolder
 
+If you have a space in your folder like ``Junk Mail`` you have to wrap the
+foldername in (encoded)quotes like:
+
+``…?folder=%22Junk%20Mail%22``
+
 .. _gmail-oauth:
 
 Specifying an archive folder
@@ -113,6 +119,29 @@ It will fall back to use your specified password as needed.
 Build your URI accordingly::
 
     gmail+ssl://youremailaddress%40gmail.com:oauth2@imap.gmail.com?archive=Archived
+
+
+.. _office365-oauth:
+
+Office 365 API
+-------------------------------------
+
+Office 365 allows through the API to read a mailbox with Oauth.
+The O365_ library is used and must be installed.
+
+.. _O365: https://github.com/O365/python-o365
+.. _configuration: https://github.com/O365/python-o365#authentication
+
+For the Oauth configuration you need to follow the instructions on the O365 configuration_ page.
+You need to register an application and get a client_id, client_secret and tenant_id.
+
+client_secret is equivalent to the app secret value and not the ID.
+
+This implementation uses the client credentials grant flow and the password you specify will be ignored.
+
+Build your URI accordingly::
+
+    office365://youremailaddress%40yourdomain.com:oauth2@outlook.office365.com?client_id=client_id&client_secret=client_secret&tenant_id=tenant_id&archive=Archived
 
 
 Local File-based Mailboxes
