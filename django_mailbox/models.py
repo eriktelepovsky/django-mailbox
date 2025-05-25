@@ -70,9 +70,8 @@ class Mailbox(models.Model):
         max_length=255,
     )
 
-    uri = models.CharField(
+    uri = models.TextField(
         _('URI'),
-        max_length=255,
         help_text=(_(
             "Example: imap+ssl://myusername:mypassword@someserver <br />"
             "<br />"
