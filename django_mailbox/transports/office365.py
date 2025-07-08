@@ -1,7 +1,10 @@
 import logging
 
 from django.conf import settings
+from django.contrib.sites.models import Site
+from django.urls import reverse
 
+from django_mailbox.backends import DjangoSocialAuthTokenBackend
 from .base import EmailTransport, MessageParseError
 
 logger = logging.getLogger(__name__)
@@ -63,3 +66,40 @@ class Office365Transport(EmailTransport):
 
             o365message.delete()
         return
+
+
+class Office365DelegatedTransport(Office365Transport):
+    def __init__(
+        self, user, archive='', folder=None
+    ):
+        self.integration_testing_subject = getattr(
+            settings,
+            'DJANGO_MAILBOX_INTEGRATION_TESTING_SUBJECT',
+            None
+        )
+        self.user = user
+        self.archive = archive
+        self.folder = folder
+
+    def connect(self, client_id, client_secret, tenant_id):
+        try:
+            import O365
+        except ImportError:
+            raise ValueError(
+                "Install o365 to use oauth2 auth for office365"
+            )
+
+        credentials = (client_id, client_secret)
+
+        scopes = ['Mail.ReadWrite']
+
+        token_backend = DjangoSocialAuthTokenBackend(user=self.user)
+        self.account = O365.Account(credentials, tenant_id=tenant_id, auth_flow_type='authorization', scopes=scopes, token_backend=token_backend)
+
+        if not self.account.is_authenticated:
+            raise ValueError("Log again and retry.")
+
+        self.mailbox = self.account.mailbox()
+        self.mailbox_folder = self.mailbox.inbox_folder()
+        if self.folder:
+            self.mailbox_folder = self.mailbox.get_folder(folder_name=self.folder)
